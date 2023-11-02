@@ -3,11 +3,13 @@ from pathlib import Path
 
 
 import torch
+import numpy as np
 import torch.nn as nn
 import torchvision
 from tqdm import tqdm
 from torchvision import datasets, transforms
 from torch.utils.tensorboard import SummaryWriter
+import imgaug.augmenters as iaa
 
 
 def load_model(model_name: str, num_classes: int, pretrained: bool = False):
@@ -180,12 +182,37 @@ def main() -> None:
     device = torch.device(args.device)
 
     # here we can add albumentations
+
+    seq = iaa.Sequential([
+        iaa.Sometimes(0.5, iaa.GaussianBlur(sigma=(0, 3.0))),
+                          iaa.Sometimes(0.5, iaa.LinearContrast((0.75, 1.5))),
+                          iaa.AdditiveGaussianNoise(loc=0,
+                                                    scale=(0.0, 0.05 * 255),
+                                                    per_channel=0.5),
+                          iaa.ChangeColorTemperature((1100, 10000),
+                                                     from_colorspace='RGB'),
+                          iaa.Sometimes(0.5, iaa.Affine(
+                              scale={"x": (0.8, 1.2), "y": (0.8, 1.2)},
+                              translate_percent={"x": (-0.2, 0.2),
+                                                 "y": (-0.2, 0.2)},
+                              rotate=(-25, 25),
+                              shear=(-8, 8)))], random_order=True)
+
     train_transforms = transforms.Compose([
-        transforms.RandomResizedCrop(224),
-        transforms.RandomHorizontalFlip(),
+        transforms.Resize(size=(224, 224)),
+        np.asarray,
+        seq.augment_image,
+        np.copy,
         transforms.ToTensor(),
         transforms.Normalize([0.485, 0.456, 0.406], [0.229, 0.224, 0.225])
+
     ])
+    # train_transforms = transforms.Compose([
+    #     transforms.RandomResizedCrop(224),
+    #     transforms.RandomHorizontalFlip(),
+    #     transforms.ToTensor(),
+    #     transforms.Normalize([0.485, 0.456, 0.406], [0.229, 0.224, 0.225])
+    # ])
     val_transforms = transforms.Compose([
         transforms.Resize(256),
         transforms.CenterCrop(224),
@@ -194,6 +221,8 @@ def main() -> None:
     ])
 
     train_dataset = datasets.ImageFolder(args.train_dataset, train_transforms)
+
+
     val_dataset = datasets.ImageFolder(args.val_dataset, val_transforms)
 
     train_dataloader = torch.utils.data.DataLoader(
